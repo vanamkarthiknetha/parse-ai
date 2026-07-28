@@ -1,5 +1,5 @@
 # Voice agent dependencies (the mock API keeps its own minimal requirements.txt)
-livekit-agents[deepgram,openai,anthropic,silero,turn-detector]~=1.2
+livekit-agents[deepgram,google,openai,anthropic,silero,turn-detector]~=1.2
 livekit-api~=1.0
 python-dotenv~=1.0
 httpx~=0.27

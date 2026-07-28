@@ -36,20 +36,30 @@ def _setup_logging() -> None:
 def resolve_llm_provider() -> str:
     """Explicit LLM_PROVIDER wins; otherwise infer from whichever key is set."""
     provider = os.getenv("LLM_PROVIDER", "").lower()
-    if provider in ("openai", "anthropic"):
+    if provider in ("openai", "anthropic", "google"):
         return provider
+    if os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"):
+        return "google"
     if os.getenv("OPENAI_API_KEY"):
         return "openai"
     if os.getenv("ANTHROPIC_API_KEY"):
         return "anthropic"
-    return "openai"
+    return "google"
 
 
 def build_llm():
     """LLM is provider-pluggable; a voice turn blocks on LLM time-to-first-token,
     so defaults favor the fastest tool-calling tier of each provider
-    (gpt-4o-mini / claude-haiku-4-5). Override with LLM_MODEL."""
-    if resolve_llm_provider() == "openai":
+    (gemini-2.5-flash / gpt-4o-mini / claude-haiku-4-5). Override with LLM_MODEL."""
+    provider = resolve_llm_provider()
+    if provider == "google":
+        from livekit.plugins import google
+
+        return google.LLM(
+            model=os.getenv("LLM_MODEL", "gemini-2.5-flash"),
+            api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
+        )
+    if provider == "openai":
         from livekit.plugins import openai
 
         return openai.LLM(model=os.getenv("LLM_MODEL", "gpt-4o-mini"))

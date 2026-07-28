@@ -23,12 +23,13 @@ from agent.state import CallState
 
 from livekit.agents import AgentSession
 
-HAS_LLM_KEY = bool(
-    os.getenv("OPENAI_API_KEY") if resolve_llm_provider() == "openai" else os.getenv("ANTHROPIC_API_KEY")
+HAS_LLM_KEY = any(
+    os.getenv(k) for k in ("GOOGLE_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
 )
 
 pytestmark = pytest.mark.skipif(
-    not HAS_LLM_KEY, reason="no LLM API key configured (set OPENAI_API_KEY or ANTHROPIC_API_KEY)"
+    not HAS_LLM_KEY,
+    reason="no LLM API key configured (set GOOGLE_API_KEY/GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY)",
 )
 
 
