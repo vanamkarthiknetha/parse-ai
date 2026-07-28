@@ -42,24 +42,32 @@ class ScenarioRun:
         self.turn_seconds: list[float] = []
         self.replies: list[str] = []
 
-    async def run(self, script: list[str]) -> None:
+    async def run(self, script: list[str], followup: str | None = None, followup_needed=None) -> None:
+        """Run the scripted turns; optionally send ONE natural follow-up turn if
+        `followup_needed()` says the task isn't done when the script ends (a
+        cooperative caller answering the agent's final re-confirmation)."""
         llm = build_llm()
         session: AgentSession[CallState] = AgentSession(llm=llm, userdata=self.state)
         try:
             await session.start(self.agent)
             for line in script:
-                t0 = time.perf_counter()
-                result = await session.run(user_input=line)
-                self.turn_seconds.append(time.perf_counter() - t0)
-                for ev in result.events:
-                    item = getattr(ev, "item", None)
-                    if getattr(item, "type", "") == "message" and getattr(item, "role", "") == "assistant":
-                        content = getattr(item, "content", None)
-                        if content:
-                            self.replies.append(" ".join(str(c) for c in content))
+                await self._turn(session, line)
+            if followup and followup_needed and followup_needed():
+                await self._turn(session, followup)
         finally:
             await session.aclose()
             await self.agent.api.aclose()
+
+    async def _turn(self, session: AgentSession, line: str) -> None:
+        t0 = time.perf_counter()
+        result = await session.run(user_input=line)
+        self.turn_seconds.append(time.perf_counter() - t0)
+        for ev in result.events:
+            item = getattr(ev, "item", None)
+            if getattr(item, "type", "") == "message" and getattr(item, "role", "") == "assistant":
+                content = getattr(item, "content", None)
+                if content:
+                    self.replies.append(" ".join(str(c) for c in content))
 
     # -- helpers over the HTTP-level call log (ground truth for tool accuracy)
     def calls(self, method: str, path_prefix: str) -> list:
@@ -105,7 +113,9 @@ async def test_t1_create_available_reservation(reset_api, recorder):
             "The name is Jordan Lee, phone number 310-555-0199.",
             "No notes.",
             "Yes, that's all correct — please confirm.",
-        ]
+        ],
+        followup="Yes, everything is correct — please book it.",
+        followup_needed=lambda: not _search(reset_api, phone="3105550199"),
     )
     results = _search(reset_api, phone="3105550199")
     assert len(results) == 1, f"expected exactly one reservation, got {results}"
@@ -128,7 +138,9 @@ async def test_t2_unavailable_time_offers_alternatives(reset_api, recorder):
             "Hmm, okay — I can do 7:30 PM instead.",
             "Taylor Kim, 424-555-0188.",
             "Yes, confirm it.",
-        ]
+        ],
+        followup="Yes, everything is correct — please book it.",
+        followup_needed=lambda: not _search(reset_api, phone="4245550188"),
     )
     results = _search(reset_api, phone="4245550188")
     assert len(results) == 1
@@ -152,7 +164,9 @@ async def test_t3_correction_before_booking(reset_api, recorder):
             # Correction arrives while the agent is confirming (text analog of barge-in)
             "Sorry, wait — make that four people, not two.",
             "Yes, that's right, confirm it.",
-        ]
+        ],
+        followup="Yes — four people, that's correct, please book it.",
+        followup_needed=lambda: not _search(reset_api, phone="2135550114"),
     )
     results = _search(reset_api, phone="2135550114")
     assert len(results) == 1, f"expected exactly one reservation, got {results}"
@@ -173,7 +187,9 @@ async def test_t4_modify_existing(reset_api, recorder):
             "I need to change my reservation, the confirmation code is LUMA-4821.",
             "Move it to 7:30 PM on the same date, and make it four people.",
             "Yes, please confirm the change.",
-        ]
+        ],
+        followup="Yes, that's right — apply the change.",
+        followup_needed=lambda: _search(reset_api, confirmation_code="LUMA-4821")[0]["time"] != "19:30",
     )
     r = _search(reset_api, confirmation_code="LUMA-4821")[0]
     assert (r["date"], r["time"], r["party_size"]) == ("2026-08-14", "19:30", 4)
@@ -194,7 +210,9 @@ async def test_t5_cancel_existing(reset_api, recorder):
         [
             "I'd like to cancel my reservation. The code is LUMA-4821.",
             "Yes, cancel it.",
-        ]
+        ],
+        followup="Yes, I'm sure — cancel it please.",
+        followup_needed=lambda: _search(reset_api, confirmation_code="LUMA-4821")[0]["status"] != "cancelled",
     )
     r = _search(reset_api, confirmation_code="LUMA-4821")[0]
     assert r["status"] == "cancelled"

@@ -59,6 +59,19 @@ class RestaurantAgent(Agent):
         super().__init__(instructions=system_prompt())
         self.api = api or ReservationAPIClient()
 
+    @staticmethod
+    def _known_reservation(state: CallState, reservation_id: str) -> Optional[dict]:
+        """A reservation is a valid modify/cancel target if it was located via
+        find_reservation OR created earlier in this same call (so a correction
+        arriving after the write becomes a clean modify, never a duplicate)."""
+        found = state.found_reservation
+        if found and found.get("reservation_id") == reservation_id:
+            return found
+        for res in state.created.values():
+            if res.get("reservation_id") == reservation_id:
+                return res
+        return None
+
     # ------------------------------------------------------------------ tools
 
     @function_tool
@@ -133,10 +146,12 @@ class RestaurantAgent(Agent):
         date: str,
         time: str,
         party_size: int,
+        caller_confirmed: bool,
         notes: Optional[str] = None,
     ) -> dict | str:
         """Create the reservation. Call ONLY after (1) check_availability confirmed
-        this exact slot and (2) the caller verbally confirmed all read-back details.
+        this exact slot and (2) you read ALL details back and the caller clearly
+        said yes.
 
         Args:
             name: Customer's full name.
@@ -144,9 +159,18 @@ class RestaurantAgent(Agent):
             date: Reservation date in YYYY-MM-DD.
             time: Reservation time in 24-hour HH:MM.
             party_size: Number of guests (1-8).
+            caller_confirmed: True ONLY if you already read back name, phone,
+                date, time and party size and the caller explicitly confirmed.
             notes: Optional special requests.
         """
         state = context.userdata
+        if not caller_confirmed:
+            return {
+                "error": (
+                    "Do not book yet: read all details back to the caller and get an explicit yes, "
+                    "then call again with caller_confirmed=true."
+                )
+            }
         try:
             name = parse_name(name)
             phone = parse_phone(phone)
@@ -302,8 +326,8 @@ class RestaurantAgent(Agent):
             new_notes: Replacement notes, if changing.
         """
         state = context.userdata
-        found = state.found_reservation
-        if not found or found.get("reservation_id") != reservation_id:
+        target = self._known_reservation(state, reservation_id)
+        if target is None:
             return {"error": "Locate the reservation with find_reservation and confirm it with the caller first."}
         if not any([new_date, new_time, new_party_size, new_notes is not None]):
             return {"error": "No changes given. Ask the caller what they want to change."}
@@ -359,8 +383,7 @@ class RestaurantAgent(Agent):
             reservation_id: The reservation_id from find_reservation.
         """
         state = context.userdata
-        found = state.found_reservation
-        if not found or found.get("reservation_id") != reservation_id:
+        if self._known_reservation(state, reservation_id) is None:
             return {"error": "Locate the reservation with find_reservation and confirm the cancellation first."}
         if reservation_id in state.cancelled_ids:
             return {

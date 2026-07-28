@@ -57,11 +57,19 @@ def reset_api(mock_api):
 
 @pytest.fixture(scope="session")
 def recorder():
-    """Collects per-scenario results and writes evals/results/scenario_results.json."""
+    """Collects per-scenario results into evals/results/scenario_results.json,
+    merging with prior runs so a partial re-run never loses other tests' data."""
     results: list[dict] = []
     yield results
     if results:
         RESULTS_DIR.mkdir(parents=True, exist_ok=True)
         out = RESULTS_DIR / "scenario_results.json"
-        out.write_text(json.dumps(results, indent=2), encoding="utf-8")
-        print(f"\nwrote {out} ({len(results)} scenarios)")
+        merged: dict[str, dict] = {}
+        if out.exists():
+            for rec in json.loads(out.read_text(encoding="utf-8")):
+                merged[rec["test"]] = rec
+        for rec in results:
+            merged[rec["test"]] = rec
+        ordered = [merged[t] for t in sorted(merged)]
+        out.write_text(json.dumps(ordered, indent=2), encoding="utf-8")
+        print(f"\nwrote {out} ({len(ordered)} scenarios)")

@@ -9,7 +9,7 @@ A real-time voice agent that answers the phone for a restaurant: checks availabi
 ┌──────────────────┐   WebRTC   ┌──────────────────────────────────┐  HTTP  ┌──────────────────┐
 │ frontend/        │◄──────────►│ Deepgram Nova-3 STT (streaming)  │◄──────►│ /availability    │
 │  index.html      │  LiveKit   │ Silero VAD + semantic turn model │ retry+ │ /reservations    │
-│  token_server.py │   room     │ Claude Haiku 4.5 (tool calling)  │ idem.  │ /reservations/.. │
+│  token_server.py │   room     │ Gemini 2.5 Flash (tool calling)  │ idem.  │ /reservations/.. │
 └──────────────────┘            │ Deepgram Aura-2 TTS (streaming)  │  keys  │ /handoff         │
                                 │ 6 guarded function tools         │        │ /admin/reset     │
                                 └──────────────────────────────────┘        └──────────────────┘
@@ -17,13 +17,17 @@ A real-time voice agent that answers the phone for a restaurant: checks availabi
 
 **Stack and why**
 
-| Layer | Choice | Rationale |
-|---|---|---|
-| Transport / orchestration | LiveKit Agents (Python) | Production WebRTC with built-in turn taking, barge-in (cancels LLM+TTS mid-utterance and truncates chat history to what was actually spoken), preemptive generation, and per-stage metrics. Swapping the browser for a phone number is config (LiveKit SIP + Twilio trunk), not code. |
-| STT | Deepgram Nova-3 (streaming) | Low-latency interim transcripts feed preemptive generation; strong accuracy on names/digits. |
-| Turn taking | Silero VAD + LiveKit semantic turn detector | The semantic model distinguishes "…for four people" (done) from "…for" (still talking), cutting both false interruptions and dead air. Falls back to VAD-only if model weights aren't downloaded. |
-| LLM | OpenAI `gpt-4o-mini` (provider-pluggable) | A voice turn blocks on LLM time-to-first-token, so the default is a fast tool-calling tier — a latency choice, not a cost choice. The provider is auto-detected from whichever key is configured; one env var (`LLM_MODEL` / `LLM_PROVIDER`) switches to `gpt-4o`, `claude-haiku-4-5`, or `claude-opus-5`. |
-| TTS | Deepgram Aura-2 (streaming) | Sub-300 ms first byte; single vendor for both speech directions. |
+
+| Layer                     | Choice                                      | Rationale                                                                                                                                                                                                                                                                                                  |
+| ------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transport / orchestration | LiveKit Agents (Python)                     | Production WebRTC with built-in turn taking, barge-in (cancels LLM+TTS mid-utterance and truncates chat history to what was actually spoken), preemptive generation, and per-stage metrics. Swapping the browser for a phone number is config (LiveKit SIP + Twilio trunk), not code.                      |
+| STT                       | Deepgram Nova-3 (streaming)                 | Low-latency interim transcripts feed preemptive generation; strong accuracy on names/digits.                                                                                                                                                                                                               |
+| Turn taking               | Silero VAD + LiveKit semantic turn detector | The semantic model distinguishes "…for four people" (done) from "…for" (still talking), cutting both false interruptions and dead air. Falls back to VAD-only if model weights aren't downloaded.                                                                                                          |
+| LLM                       | Gemini 2.5 Flash (provider-pluggable)       | A voice turn blocks on LLM time-to-first-token, so the default is a fast tool-calling tier — a latency choice, not a cost choice. The provider is auto-detected from whichever key is configured; one env var (`LLM_MODEL` / `LLM_PROVIDER`) switches to `gpt-4o-mini`, `claude-haiku-4-5`, or a top-tier model. |
+| TTS                       | Deepgram Aura-2 (streaming)                 | Sub-300 ms first byte; single vendor for both speech directions.                                                                                                                                                                                                                                           |
+
+
+
 
 ## Repo layout
 
@@ -46,6 +50,8 @@ evals/
   make_report.py          # Fills EVALUATION_TEMPLATE.md from recorded results
 ```
 
+
+
 ## Setup
 
 Requires Python 3.11+ and (for the browser demo) a free LiveKit Cloud project.
@@ -59,25 +65,29 @@ copy .env.example .env                      # then fill in keys (see below)
 python -m agent.main download-files         # one-time: turn-detector weights
 ```
 
-`.env` needs: `DEEPGRAM_API_KEY`, `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY` — the provider is auto-detected), and for the browser demo `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`.
+`.env` needs: `DEEPGRAM_API_KEY`, `GOOGLE_API_KEY` (or `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` — the provider is auto-detected), and for the browser demo `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`.
 
 ## Run
 
 **1. Mock API** (terminal 1):
+
 ```bash
 python -m uvicorn app:app --port 8000        # or: docker compose up --build
 ```
 
 **2a. Console voice mode** — no LiveKit account needed (terminal 2):
+
 ```bash
 python -m agent.main console
 ```
 
 **2b. Browser demo** (terminals 2 + 3):
+
 ```bash
 python -m agent.main dev
 python -m uvicorn frontend.token_server:app --port 8080   # then open http://localhost:8080
 ```
+
 Click "Start call" and talk. Live transcripts render below the buttons; latency per turn is logged to `logs/metrics.jsonl`.
 
 ## Tests and evaluation
@@ -95,13 +105,17 @@ The scenario suite drives the exact scripts from `standard_test_cases.json` thro
 - Voice path: `agent/metrics_logger.py` correlates LiveKit's per-turn metrics into a single end-of-speech → first-audio number (`EOU delay + LLM TTFT + TTS TTFB`) written to `logs/metrics.jsonl`; a p50/p95 summary is logged at session end.
 - Tool path: every mock-API call is logged as JSON with latency and attempt count.
 
+
+
 ## Major decisions
 
-- **Writes are guarded in code, not just prompt.** `create_reservation` refuses to run unless a successful availability check for that exact slot happened in-session; `modify`/`cancel` require the reservation to have been located via `find_reservation` first. Prompt-only policies fail sometimes; code guards don't.
+- **Writes are guarded in code, not just prompt.** `create_reservation` refuses to run unless the caller explicitly confirmed (`caller_confirmed`) and a successful availability check for that exact slot happened in-session; `modify`/`cancel` require the reservation to have been located via `find_reservation` (or created earlier in the same call) first. Prompt-only policies fail sometimes; code guards don't.
 - **Duplicate prevention is layered**: deterministic idempotency key (hash of session + booking details) so any retry/repeat reuses the same key and the API returns the original record; an in-session duplicate short-circuit that answers with the existing confirmation code; and the API's own idempotency store.
 - **Retry policy is deliberately narrow**: exactly one retry, only for 503/transport errors, only on requests that are safe (GETs, keyed create, idempotent cancel). PATCH is never blindly retried.
 - **Handoff preserves context by construction**: the model writes a summary, and the code appends a structured dump of everything collected (name, phone, pending details, bookings made/cancelled) so a thin model summary can't lose state.
 - **Tool errors are messages, not exceptions**: every failure returns a corrective instruction the LLM relays or acts on ("offer ONLY these alternatives"), keeping the conversation recoverable.
+
+
 
 ## Known limitations
 
@@ -110,6 +124,8 @@ The scenario suite drives the exact scripts from `standard_test_cases.json` thro
 - Date parsing trusts the LLM's YYYY-MM-DD conversion (validated for format/range, cross-checked against the spoken confirmation read-back, but "next Friday" ambiguity ultimately resolves in the model).
 - Handoff is simulated (queued via `/handoff`) — no real SIP transfer.
 - English-only STT/turn-detection configuration.
+
+
 
 ## Scaling approach
 
@@ -121,12 +137,15 @@ Built with **Claude Code (Claude Fable 5)** driving the implementation end-to-en
 
 ---
 
+
+
 ## Appendix: supplied mock API (unmodified)
 
-API: http://localhost:8000 · Swagger: http://localhost:8000/docs
+API: [http://localhost:8000](http://localhost:8000) · Swagger: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 - Timezone America/Los_Angeles; open Tue–Sun 17:00–22:00; 30-min slots; max standard party 8 (larger ⇒ handoff).
 - Seeded reservation: LUMA-4821, Alex Morgan, +1 310 555 0147, 2026-08-14 18:00, party 2.
 - `POST /reservations` requires an `Idempotency-Key` header; same key ⇒ same reservation.
 - First availability request for 2026-08-16 returns 503, then succeeds (retry test).
 - Invalid input ⇒ 422; unavailable slot ⇒ 409 with alternatives; `POST /admin/reset` restores seed data.
+

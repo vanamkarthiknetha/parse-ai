@@ -1,0 +1,170 @@
+[
+  {
+    "test": "T1",
+    "name": "Create available reservation",
+    "outcome": "booked 2026-08-14 18:00 x4",
+    "tool_http_calls": [
+      "GET /availability -> 200 (attempt 1)",
+      "POST /reservations -> 200 (attempt 1)"
+    ],
+    "creates": 1,
+    "turn_wall_seconds": [
+      3.58,
+      1.43,
+      2.36,
+      1.46
+    ],
+    "api_latency_ms": {
+      "max": 3.6,
+      "all": [
+        3.6,
+        3.3
+      ]
+    },
+    "notes": ""
+  },
+  {
+    "test": "T2",
+    "name": "Unavailable time",
+    "outcome": "offered API alternatives; booked 19:30",
+    "tool_http_calls": [
+      "GET /availability -> 200 (attempt 1)",
+      "GET /availability -> 200 (attempt 1)",
+      "POST /reservations -> 200 (attempt 1)"
+    ],
+    "creates": 1,
+    "turn_wall_seconds": [
+      3.66,
+      2.9,
+      2.62,
+      1.85
+    ],
+    "api_latency_ms": {
+      "max": 4.0,
+      "all": [
+        3.7,
+        4.0,
+        1.9
+      ]
+    },
+    "notes": ""
+  },
+  {
+    "test": "T3",
+    "name": "Correction / barge-in",
+    "outcome": "single booking with corrected party size 4",
+    "tool_http_calls": [
+      "GET /availability -> 200 (attempt 1)",
+      "POST /reservations -> 200 (attempt 1)",
+      "PATCH /reservations/res_c95f84c0f5 -> 200 (attempt 1)"
+    ],
+    "creates": 1,
+    "turn_wall_seconds": [
+      3.18,
+      3.27,
+      3.04,
+      1.74
+    ],
+    "api_latency_ms": {
+      "max": 4.4,
+      "all": [
+        4.4,
+        2.1,
+        2.8
+      ]
+    },
+    "notes": ""
+  },
+  {
+    "test": "T4",
+    "name": "Modify existing reservation",
+    "outcome": "PATCH applied once; capacity moved",
+    "tool_http_calls": [
+      "GET /reservations/search -> 200 (attempt 1)",
+      "GET /availability -> 200 (attempt 1)",
+      "PATCH /reservations/res_existing_4821 -> 200 (attempt 1)"
+    ],
+    "creates": 0,
+    "turn_wall_seconds": [
+      1.7,
+      4.69,
+      3.97
+    ],
+    "api_latency_ms": {
+      "max": 3.2,
+      "all": [
+        3.2,
+        2.1,
+        2.4
+      ]
+    },
+    "notes": ""
+  },
+  {
+    "test": "T5",
+    "name": "Cancel existing reservation",
+    "outcome": "cancelled once after confirmation",
+    "tool_http_calls": [
+      "GET /reservations/search -> 200 (attempt 1)",
+      "POST /reservations/res_existing_4821/cancel -> 200 (attempt 1)"
+    ],
+    "creates": 0,
+    "turn_wall_seconds": [
+      3.62,
+      2.34
+    ],
+    "api_latency_ms": {
+      "max": 3.5,
+      "all": [
+        3.5,
+        2.3
+      ]
+    },
+    "notes": ""
+  },
+  {
+    "test": "T6",
+    "name": "Temporary API failure",
+    "outcome": "503 absorbed by single retry; real result relayed",
+    "tool_http_calls": [
+      "GET /availability -> 503 (attempt 1)",
+      "GET /availability -> 200 (attempt 2)"
+    ],
+    "creates": 0,
+    "turn_wall_seconds": [
+      4.24
+    ],
+    "api_latency_ms": {
+      "max": 4.6,
+      "all": [
+        4.6,
+        4.3
+      ]
+    },
+    "notes": ""
+  },
+  {
+    "test": "T7",
+    "name": "Duplicate protection",
+    "outcome": "same idempotency key returned original record",
+    "tool_http_calls": [
+      "GET /availability -> 200 (attempt 1)",
+      "POST /reservations -> 200 (attempt 1)"
+    ],
+    "creates": 1,
+    "turn_wall_seconds": [
+      3.91,
+      2.82,
+      1.02,
+      1.65
+    ],
+    "api_latency_ms": {
+      "max": 4.2,
+      "all": [
+        4.2,
+        3.1
+      ]
+    },
+    "notes": ""
+  }
+]
