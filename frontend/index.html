@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Luma Bistro — Voice Reservations</title>
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: Georgia, 'Times New Roman', serif;
+      max-width: 640px; margin: 3rem auto; padding: 0 1rem;
+      background: #f4f1ea; color: #2b2b2b;
+    }
+    h1 { font-weight: normal; letter-spacing: 0.02em; }
+    h1 em { color: #b3552e; }
+    button {
+      font: inherit; padding: 0.7rem 1.6rem; border-radius: 999px;
+      border: 1px solid #b3552e; background: #b3552e; color: #fff; cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: default; }
+    button.secondary { background: transparent; color: #b3552e; }
+    #status { margin: 1rem 0; font-style: italic; }
+    #transcript {
+      border-top: 1px solid #d8d2c4; margin-top: 1.5rem; padding-top: 1rem;
+      min-height: 12rem; font-family: ui-monospace, monospace; font-size: 0.9rem;
+      white-space: pre-wrap;
+    }
+    .agent { color: #b3552e; }
+  </style>
+</head>
+<body>
+  <h1>Luma <em>Bistro</em></h1>
+  <p>Talk to our host to book, change, or cancel a table. Tue–Sun, 5–10 PM.</p>
+  <button id="callBtn">Start call</button>
+  <button id="hangupBtn" class="secondary" disabled>Hang up</button>
+  <div id="status">Idle.</div>
+  <div id="transcript"></div>
+
+  <script>
+    const { Room, RoomEvent } = LivekitClient;
+    let room = null;
+    const statusEl = document.getElementById('status');
+    const transcriptEl = document.getElementById('transcript');
+    const callBtn = document.getElementById('callBtn');
+    const hangupBtn = document.getElementById('hangupBtn');
+    const lines = new Map(); // segment id -> {who, text}
+
+    function render() {
+      transcriptEl.innerHTML = [...lines.values()]
+        .map(l => `<div class="${l.who === 'Host' ? 'agent' : ''}"><b>${l.who}:</b> ${l.text}</div>`)
+        .join('');
+      transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    }
+
+    async function startCall() {
+      callBtn.disabled = true;
+      statusEl.textContent = 'Connecting…';
+      try {
+        const res = await fetch('/token');
+        if (!res.ok) throw new Error(await res.text());
+        const { url, token } = await res.json();
+
+        room = new Room();
+        room.on(RoomEvent.TrackSubscribed, (track) => {
+          if (track.kind === 'audio') track.attach().play?.() ?? document.body.appendChild(track.attach());
+        });
+        room.on(RoomEvent.TranscriptionReceived, (segments, participant) => {
+          const who = participant?.isLocal ? 'You' : 'Host';
+          for (const s of segments) { lines.set(s.id, { who, text: s.text }); }
+          render();
+        });
+        room.on(RoomEvent.Disconnected, () => {
+          statusEl.textContent = 'Call ended.';
+          callBtn.disabled = false; hangupBtn.disabled = true;
+        });
+
+        await room.connect(url, token);
+        await room.localParticipant.setMicrophoneEnabled(true);
+        statusEl.textContent = 'Connected — say hello!';
+        hangupBtn.disabled = false;
+      } catch (err) {
+        statusEl.textContent = 'Failed to connect: ' + err.message;
+        callBtn.disabled = false;
+      }
+    }
+
+    callBtn.addEventListener('click', startCall);
+    hangupBtn.addEventListener('click', () => room?.disconnect());
+  </script>
+</body>
+</html>
