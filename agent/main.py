@@ -33,16 +33,23 @@ def _setup_logging() -> None:
     logging.getLogger().addHandler(file_handler)
 
 
-def build_llm():
-    """LLM is configurable; default is Claude Haiku 4.5.
+def resolve_llm_provider() -> str:
+    """Explicit LLM_PROVIDER wins; otherwise infer from whichever key is set."""
+    provider = os.getenv("LLM_PROVIDER", "").lower()
+    if provider in ("openai", "anthropic"):
+        return provider
+    if os.getenv("OPENAI_API_KEY"):
+        return "openai"
+    if os.getenv("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    return "openai"
 
-    A voice turn blocks on LLM time-to-first-token, so the default is the
-    fastest current Claude model rather than the most capable one. Set
-    LLM_PROVIDER/LLM_MODEL to trade latency for capability (e.g. claude-opus-5
-    for non-realtime use).
-    """
-    provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
-    if provider == "openai":
+
+def build_llm():
+    """LLM is provider-pluggable; a voice turn blocks on LLM time-to-first-token,
+    so defaults favor the fastest tool-calling tier of each provider
+    (gpt-4o-mini / claude-haiku-4-5). Override with LLM_MODEL."""
+    if resolve_llm_provider() == "openai":
         from livekit.plugins import openai
 
         return openai.LLM(model=os.getenv("LLM_MODEL", "gpt-4o-mini"))

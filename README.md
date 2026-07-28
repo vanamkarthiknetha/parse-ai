@@ -22,7 +22,7 @@ A real-time voice agent that answers the phone for a restaurant: checks availabi
 | Transport / orchestration | LiveKit Agents (Python) | Production WebRTC with built-in turn taking, barge-in (cancels LLM+TTS mid-utterance and truncates chat history to what was actually spoken), preemptive generation, and per-stage metrics. Swapping the browser for a phone number is config (LiveKit SIP + Twilio trunk), not code. |
 | STT | Deepgram Nova-3 (streaming) | Low-latency interim transcripts feed preemptive generation; strong accuracy on names/digits. |
 | Turn taking | Silero VAD + LiveKit semantic turn detector | The semantic model distinguishes "…for four people" (done) from "…for" (still talking), cutting both false interruptions and dead air. Falls back to VAD-only if model weights aren't downloaded. |
-| LLM | Claude Haiku 4.5 (configurable) | A voice turn blocks on LLM time-to-first-token, so the default is the fastest current Claude model with strong tool calling — this is a latency choice, not a cost choice. `LLM_PROVIDER`/`LLM_MODEL` switch to `claude-opus-5` or OpenAI in one env var. |
+| LLM | OpenAI `gpt-4o-mini` (provider-pluggable) | A voice turn blocks on LLM time-to-first-token, so the default is a fast tool-calling tier — a latency choice, not a cost choice. The provider is auto-detected from whichever key is configured; one env var (`LLM_MODEL` / `LLM_PROVIDER`) switches to `gpt-4o`, `claude-haiku-4-5`, or `claude-opus-5`. |
 | TTS | Deepgram Aura-2 (streaming) | Sub-300 ms first byte; single vendor for both speech directions. |
 
 ## Repo layout
@@ -59,7 +59,7 @@ copy .env.example .env                      # then fill in keys (see below)
 python -m agent.main download-files         # one-time: turn-detector weights
 ```
 
-`.env` needs: `DEEPGRAM_API_KEY`, `ANTHROPIC_API_KEY` (or `LLM_PROVIDER=openai` + `OPENAI_API_KEY`), and for the browser demo `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`.
+`.env` needs: `DEEPGRAM_API_KEY`, `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY` — the provider is auto-detected), and for the browser demo `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`.
 
 ## Run
 

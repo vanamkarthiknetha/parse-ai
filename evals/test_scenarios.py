@@ -17,20 +17,18 @@ import time
 import httpx
 import pytest
 
-from agent.main import build_llm
+from agent.main import build_llm, resolve_llm_provider
 from agent.restaurant_agent import RestaurantAgent
 from agent.state import CallState
 
 from livekit.agents import AgentSession
 
 HAS_LLM_KEY = bool(
-    os.getenv("ANTHROPIC_API_KEY")
-    if os.getenv("LLM_PROVIDER", "anthropic").lower() == "anthropic"
-    else os.getenv("OPENAI_API_KEY")
+    os.getenv("OPENAI_API_KEY") if resolve_llm_provider() == "openai" else os.getenv("ANTHROPIC_API_KEY")
 )
 
 pytestmark = pytest.mark.skipif(
-    not HAS_LLM_KEY, reason="no LLM API key configured (set ANTHROPIC_API_KEY, or OPENAI_API_KEY with LLM_PROVIDER=openai)"
+    not HAS_LLM_KEY, reason="no LLM API key configured (set OPENAI_API_KEY or ANTHROPIC_API_KEY)"
 )
 
 

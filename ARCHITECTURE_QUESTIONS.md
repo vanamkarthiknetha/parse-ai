@@ -4,7 +4,7 @@
 
 - **LiveKit Agents + WebRTC transport.** The hard real-time problems — echo cancellation, jitter, turn detection, barge-in that actually cancels in-flight generation, per-stage metrics — are solved in the framework rather than hand-rolled. The same worker takes a phone number later via LiveKit SIP + Twilio without code changes, and the text-mode `AgentSession` lets the eval suite exercise the identical agent without audio.
 - **Deepgram Nova-3 STT.** Streaming interim results (needed for preemptive generation), strong digit/name accuracy, ~sub-300 ms finalization.
-- **Claude Haiku 4.5 LLM (configurable).** The voice turn blocks on LLM time-to-first-token, so the default is the fastest current Claude model with reliable tool calling. This is a latency decision: for non-realtime workloads I would default to `claude-opus-5`, and `LLM_MODEL` makes that a one-line switch.
+- **OpenAI `gpt-4o-mini` LLM (provider-pluggable).** The voice turn blocks on LLM time-to-first-token, so the default is a fast tool-calling tier rather than the most capable model — a latency decision. The provider is auto-detected from the configured key, so the same code runs `claude-haiku-4-5` (latency-equivalent) or a top-tier model like `claude-opus-5`/`gpt-4o` for non-realtime workloads via one env var.
 - **Deepgram Aura-2 TTS.** Streaming synthesis with low first-byte latency; one speech vendor simplifies keys, billing and failure modes.
 
 ## 2. How is session and reservation state stored?
@@ -62,9 +62,9 @@ Assuming ~15 agent turns, agent speaks ~2,000 characters, defaults as configured
 |---|---|---|
 | Deepgram Nova-3 STT | ~$0.0077/min × 5 min streamed | ~$0.04 |
 | Deepgram Aura-2 TTS | ~$0.030/1k chars × ~2k chars | ~$0.06 |
-| Claude Haiku 4.5 | ~50k input ($1/MTok) + ~2k output ($5/MTok), history resent per turn | ~$0.06 |
+| LLM (gpt-4o-mini) | ~50k input ($0.15/MTok) + ~2k output ($0.60/MTok), history resent per turn | ~$0.01 (claude-haiku-4-5: ~$0.06) |
 | LiveKit Cloud | 2 participants × 5 min | ~$0.01–0.03 |
-| **Total (browser)** | | **≈ $0.17–0.19** |
+| **Total (browser)** | | **≈ $0.12–0.14** |
 | + Twilio PSTN inbound (if phone) | ~$0.0085/min × 5 | +~$0.04 |
 
 Levers: prompt caching on the LLM (the system prompt + tool schemas dominate input tokens and are cache-hits after turn one, cutting LLM cost roughly in half), trimming spoken verbosity (TTS is per-character), and history compaction on long calls.
