@@ -11,3 +11,5 @@
 | T7 | | | | | | | |
 
 Aggregate: task success rate, tool-call accuracy, duplicate-write rate, p50/p95 response latency, known limitations.
+
+> This file is generated: run `python -m pytest evals/test_scenarios.py` (records per-scenario results and tool-call logs), have at least one live voice session (records `logs/metrics.jsonl`), then `python -m evals.make_report` to fill the table above.
