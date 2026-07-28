@@ -18,6 +18,26 @@ from livekit import agents
 from livekit.agents import AgentSession, MetricsCollectedEvent, metrics
 from livekit.plugins import deepgram, silero
 
+# LiveKit plugins must be imported (registered) on the MAIN thread at module
+# import time — importing lazily inside the job entrypoint crashes the job
+# with "Plugins must be registered on the main thread".
+try:
+    from livekit.plugins import google as google_plugin
+except ImportError:  # provider extras are optional
+    google_plugin = None
+try:
+    from livekit.plugins import openai as openai_plugin
+except ImportError:
+    openai_plugin = None
+try:
+    from livekit.plugins import anthropic as anthropic_plugin
+except ImportError:
+    anthropic_plugin = None
+try:
+    from livekit.plugins.turn_detector.english import EnglishModel
+except Exception:
+    EnglishModel = None
+
 from .metrics_logger import LOG_DIR, TurnLatencyTracker
 from .restaurant_agent import RestaurantAgent
 from .state import CallState
@@ -53,26 +73,27 @@ def build_llm():
     (gemini-2.5-flash / gpt-4o-mini / claude-haiku-4-5). Override with LLM_MODEL."""
     provider = resolve_llm_provider()
     if provider == "google":
-        from livekit.plugins import google
-
-        return google.LLM(
+        if google_plugin is None:
+            raise RuntimeError("google provider selected but livekit-agents[google] is not installed")
+        return google_plugin.LLM(
             model=os.getenv("LLM_MODEL", "gemini-2.5-flash"),
             api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
         )
     if provider == "openai":
-        from livekit.plugins import openai
-
-        return openai.LLM(model=os.getenv("LLM_MODEL", "gpt-4o-mini"))
-    from livekit.plugins import anthropic
-
-    return anthropic.LLM(model=os.getenv("LLM_MODEL", "claude-haiku-4-5"))
+        if openai_plugin is None:
+            raise RuntimeError("openai provider selected but livekit-agents[openai] is not installed")
+        return openai_plugin.LLM(model=os.getenv("LLM_MODEL", "gpt-4o-mini"))
+    if anthropic_plugin is None:
+        raise RuntimeError("anthropic provider selected but livekit-agents[anthropic] is not installed")
+    return anthropic_plugin.LLM(model=os.getenv("LLM_MODEL", "claude-haiku-4-5"))
 
 
 def build_turn_detection():
     """Semantic end-of-turn model; falls back to VAD-only if weights are missing."""
+    if EnglishModel is None:
+        logger.warning("turn detector plugin unavailable; falling back to VAD-only turn taking")
+        return None
     try:
-        from livekit.plugins.turn_detector.english import EnglishModel
-
         return EnglishModel()
     except Exception as e:  # model files not downloaded yet
         logger.warning("turn detector unavailable (%s); falling back to VAD-only turn taking", e)
